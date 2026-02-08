@@ -24,8 +24,12 @@
 package net.kyori.adventure.nbt;
 
 import com.google.common.collect.ImmutableList;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static net.kyori.adventure.nbt.LongBinaryTag.longBinaryTag;
@@ -142,6 +146,22 @@ class ListBinaryTagTest {
       .build();
 
     assertEquals(expected, input.wrapHeterogeneity());
+  }
+
+  @Test
+  void testHeterogeneousSerialization() {
+    final ListBinaryTag input = ListBinaryTag.listBinaryTag(
+      BinaryTagTypes.LIST_WILDCARD,
+      List.of(longBinaryTag(5), stringBinaryTag("five"))
+    );
+    try (ByteArrayOutputStream byteOutput = new ByteArrayOutputStream()) {
+      BinaryTagIO.writer().write(CompoundBinaryTag.from(Map.of("list", input)), byteOutput);
+      final byte[] written = byteOutput.toByteArray();
+      final CompoundBinaryTag readCompound = BinaryTagIO.reader().read(new ByteArrayInputStream(written));
+      assertEquals(input, readCompound.getList("list"));
+    } catch (final IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Test

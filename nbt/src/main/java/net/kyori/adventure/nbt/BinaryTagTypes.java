@@ -23,6 +23,9 @@
  */
 package net.kyori.adventure.nbt;
 
+//import java.io.IOException;
+//import java.nio.file.Path;
+//import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -108,21 +111,37 @@ public final class BinaryTagTypes {
   @SuppressWarnings("try")
   public static final BinaryTagType<ListBinaryTag> LIST = BinaryTagTypeImpl.register(ListBinaryTag.class, (byte) 9, input -> {
     final BinaryTagType<? extends BinaryTag> type = BinaryTagType.binaryTagType(input.readByte());
+    BinaryTagType<?> finalType = type;
     final int length = input.readInt();
     try (final BinaryTagScope ignored = TrackingDataInput.enter(input, length * 8L)) {
       final List<BinaryTag> tags = new ArrayList<>(length);
-      for (int i = 0; i < length; i++) {
-        tags.add(type.read(input));
+      BinaryTag firstTag = type.read(input);
+      boolean needsUnboxing = false;
+      if (firstTag instanceof CompoundBinaryTag compound) {
+        final BinaryTag unboxed = ListBinaryTag0.unbox(compound);
+        if (unboxed != compound) {
+          finalType = BinaryTagTypes.LIST_WILDCARD;
+          firstTag = unboxed;
+          needsUnboxing = true;
+        }
       }
-      return ListBinaryTag.listBinaryTag(type, tags);
+      tags.add(firstTag);
+      for (int i = 1; i < length; i++) {
+        final BinaryTag value = type.read(input);
+        tags.add(needsUnboxing ? ListBinaryTag0.unbox((CompoundBinaryTag) value) : value);
+      }
+      return ListBinaryTag.listBinaryTag(finalType, tags);
     }
-  }, (rawTag, output) -> {
-    final ListBinaryTag tag = rawTag.wrapHeterogeneity();
-    output.writeByte(tag.elementType().id());
+  }, (tag, output) -> {
+    final boolean needsWrapping = tag.elementType() == BinaryTagTypes.LIST_WILDCARD;
+    output.writeByte(needsWrapping ? BinaryTagTypes.COMPOUND.id() : tag.elementType().id());
     final int size = tag.size();
     output.writeInt(size);
     for (final BinaryTag item : tag) {
-      BinaryTagTypeImpl.writeUntyped(item.type(), item, output);
+      BinaryTagTypeImpl.writeUntyped(
+        needsWrapping ? BinaryTagTypes.COMPOUND : item.type(),
+        needsWrapping ? ListBinaryTag0.box(item) : item,
+        output);
     }
   });
   /**
@@ -219,4 +238,24 @@ public final class BinaryTagTypes {
 
   private BinaryTagTypes() {
   }
+
+//  public static void main(String[] args) {
+//    CompoundBinaryTag data = CompoundBinaryTag.builder().put(
+//      "list", ListBinaryTag.heterogeneousListBinaryTag()
+//        .add(IntBinaryTag.intBinaryTag(5))
+//        .add(StringBinaryTag.stringBinaryTag("hello"))
+//        .build()
+//    ).build();
+//
+//    // API Test
+//    try {
+//      Path apiPath = Paths.get("C:/Users/talec/Documents/GitHub/adventure/nbt/test.dat");
+//      BinaryTagIO.writer().write(data, apiPath);
+//      CompoundBinaryTag read = BinaryTagIO.reader().read(apiPath);
+//      System.out.println("\nAPI Data: " + data + "\nPost Wri: " + read);
+//    }
+//    catch (IOException e) {
+//      throw new RuntimeException(e);
+//    }
+//  }
 }
